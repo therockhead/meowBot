@@ -5,7 +5,7 @@ import requests
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-
+import psycopg2
 # Load configuration
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -28,16 +28,17 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # -------------------------------------------------------------------------
 # DATABASE SETUP
 # -------------------------------------------------------------------------
-DB_FILE = "reminders.db"
+# DB_FILE = "reminders.db"
 
+DATABASE_URL = os.getenv('DATABASE_URL')
 def init_db():
-    """Initializes the local SQLite database to store sent reminder keys."""
-    conn = sqlite3.connect(DB_FILE)
+    """Initializes the Render PostgreSQL database."""
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS sent_alerts (
-            alert_id TEXT PRIMARY KEY,
-            sent_at TEXT
+            alert_id VARCHAR(255) PRIMARY KEY,
+            sent_at TIMESTAMPTZ
         )
     ''')
     conn.commit()
@@ -45,19 +46,22 @@ def init_db():
 
 def has_alert_been_sent(alert_id):
     """Checks the database to see if this specific alert type was sent."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM sent_alerts WHERE alert_id = ?", (alert_id,))
+    cursor.execute("SELECT 1 FROM sent_alerts WHERE alert_id = %s", (alert_id,))
     result = cursor.fetchone()
     conn.close()
     return result is not None
 
 def record_sent_alert(alert_id):
-    """Saves the alert ID to the database so it is never repeated."""
-    conn = sqlite3.connect(DB_FILE)
+    """Saves the alert ID to PostgreSQL so it is never repeated."""
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     now_str = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    cursor.execute("INSERT OR IGNORE INTO sent_alerts (alert_id, sent_at) VALUES (?, ?)", (alert_id, now_str))
+    cursor.execute(
+        "INSERT INTO sent_alerts (alert_id, sent_at) VALUES (%s, %s) ON CONFLICT (alert_id) DO NOTHING", 
+        (alert_id, now_str)
+    )
     conn.commit()
     conn.close()
 
